@@ -79,7 +79,7 @@ This framework enables **data scientists and ML engineers** to:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Production Traffic                       │
+│                     Production Traffic                      │
 └────────────────────────────┬────────────────────────────────┘
                              │
                     ┌────────▼────────┐
@@ -103,10 +103,10 @@ This framework enables **data scientists and ML engineers** to:
                              │
         ┌────────────────────┼────────────────────┐
         │                    │                    │
-   ┌────▼─────┐      ┌───────▼────────┐   ┌──────▼──────┐
-   │Champion  │      │   Challenger   │   │  Feedback   │
-   │Model.pkl │      │   Model.pkl    │   │ Collection  │
-   └──────────┘      └────────────────┘   └──────┬──────┘
+   ┌────▼─────┐      ┌───────▼────────┐    ┌──────▼──────┐
+   │Champion  │      │   Challenger   │    │  Feedback   │
+   │Model.pkl │      │   Model.pkl    │    │ Collection  │
+   └──────────┘      └────────────────┘    └──────┬──────┘
                                                   │
                                           ┌───────▼────────┐
                                           │   Statistical  │
