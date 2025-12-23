@@ -599,18 +599,6 @@ python3.11 -m uvicorn backend.main:app --reload
 
 ---
 
-## 🤝 Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
----
-
 ## 📝 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
@@ -632,16 +620,10 @@ Built with:
 
 **Navnith Bharadwaj**  
 GitHub: [@navnithb2001](https://github.com/navnithb2001)  
-Project Link: [https://github.com/navnithb2001/AutoApply](https://github.com/navnithb2001/AutoApply)
+Project Link: [https://github.com/navnithb2001/A-B-Testing-Framework-for-ML-models](https://github.com/navnithb2001/A-B-Testing-Framework-for-ML-models)
 
 ---
 
 ## ⭐ Star History
 
 If this project helped you, please consider giving it a star! ⭐
-
----
-
-<p align="center">
-  Made with ❤️ for the ML community
-</p>
