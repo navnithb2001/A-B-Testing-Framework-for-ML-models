@@ -89,10 +89,10 @@ This framework enables **data scientists and ML engineers** to:
                              │
         ┌────────────────────┼────────────────────┐
         │                    │                    │
-    ┌───▼────┐         ┌─────▼──────┐      ┌─────▼──────┐
-    │ Models │         │Experiments │      │Predictions │
-    │Registry│         │ Manager    │      │  Router    │
-    └───┬────┘         └─────┬──────┘      └─────┬──────┘
+    ┌───▼────┐         ┌─────▼──────┐       ┌─────▼──────┐
+    │ Models │         │Experiments │       │Predictions │
+    │Registry│         │ Manager    │       │  Router    │
+    └───┬────┘         └─────┬──────┘       └─────┬──────┘
         │                    │                    │
         └────────────────────┼────────────────────┘
                              │
