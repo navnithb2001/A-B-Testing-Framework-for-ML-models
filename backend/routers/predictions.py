@@ -235,6 +235,20 @@ async def batch_predict(
     if not feature_columns:
         raise HTTPException(status_code=400, detail="No feature columns found in CSV")
     
+    # Pre-load both models to avoid repeated disk I/O
+    champion_model_record = db.query(Model).filter(Model.id == experiment.champion_model_id).first()
+    challenger_model_record = db.query(Model).filter(Model.id == experiment.challenger_model_id).first()
+    
+    if not champion_model_record or not challenger_model_record:
+        raise HTTPException(status_code=404, detail="Champion or challenger model not found")
+    
+    # Load models once (not in the loop!)
+    try:
+        champion_model = load_model_artifact(champion_model_record.file_path, champion_model_record.model_type)
+        challenger_model = load_model_artifact(challenger_model_record.file_path, challenger_model_record.model_type)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load models: {str(e)}")
+    
     results = []
     predictions_by_variant = {"champion": 0, "challenger": 0}
     
@@ -245,25 +259,23 @@ async def batch_predict(
         variant = assign_user_to_variant(user_id, experiment_id, experiment.traffic_split)
         predictions_by_variant[variant] += 1
         
-        # Get the appropriate model
+        # Get the appropriate model (already loaded)
         if variant == "champion":
+            model = champion_model
+            model_record = champion_model_record
             model_id = experiment.champion_model_id
         else:
+            model = challenger_model
+            model_record = challenger_model_record
             model_id = experiment.challenger_model_id
         
-        model_record = db.query(Model).filter(Model.id == model_id).first()
-        if not model_record:
-            raise HTTPException(status_code=404, detail=f"Model {model_id} not found")
-        
-        # Load and run model
+        # Make prediction
         try:
-            model = load_model_artifact(model_record.file_path, model_record.model_type)
-            
             # Extract features in order
             features_dict = {col: row[col] for col in feature_columns}
             feature_values = [row[col] for col in feature_columns]
             
-            # Measure latency
+            # Measure latency (only prediction time, not model loading)
             start_time = time.time()
             prediction = model.predict([feature_values])[0]
             latency_ms = (time.time() - start_time) * 1000

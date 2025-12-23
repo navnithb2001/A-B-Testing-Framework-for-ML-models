@@ -310,11 +310,17 @@ async def get_experiment_results(experiment_id: str, db: Session = Depends(get_d
     
     if latency_test["p_value"] < 0.05:
         if latency_diff_pct > 0:
-            reasoning.append(f"Challenger is significantly slower (+{latency_diff_pct:.2f}%)")
+            reasoning.append(
+                f"Challenger is significantly slower "
+                f"(+{latency_diff_pct:.2f}%, {champion_latency['mean_ms']:.3f}ms → {challenger_latency['mean_ms']:.3f}ms)"
+            )
             if recommendation == "promote_challenger":
                 recommendation = "needs_review"
         else:
-            reasoning.append(f"Challenger is significantly faster ({abs(latency_diff_pct):.2f}% reduction)")
+            reasoning.append(
+                f"Challenger is significantly faster "
+                f"({abs(latency_diff_pct):.2f}% reduction, {champion_latency['mean_ms']:.3f}ms → {challenger_latency['mean_ms']:.3f}ms)"
+            )
             if recommendation == "keep_champion":
                 recommendation = "promote_challenger"
     else:
