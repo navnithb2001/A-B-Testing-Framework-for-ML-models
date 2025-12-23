@@ -70,8 +70,12 @@ print(f"  ✓ Saved to models/fraud_detector_v2.pkl\n")
 # Save test data for later use
 test_data = pd.DataFrame(X_test, columns=feature_names)
 test_data['is_fraud'] = y_test
+
+# Add user_id column for batch predictions
+test_data.insert(0, 'user_id', [f'user_{i:04d}' for i in range(len(test_data))])
+
 test_data.to_csv('models/test_data.csv', index=False)
-print(f"  ✓ Saved test data to models/test_data.csv\n")
+print(f"  ✓ Saved test data to models/test_data.csv ({len(test_data)} rows)\n")
 
 print("=" * 60)
 print("✅ Demo models trained successfully!")

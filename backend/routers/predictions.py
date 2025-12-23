@@ -1,15 +1,17 @@
 """
 Router for prediction and feedback endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import uuid
 import hashlib
 import time
 from datetime import datetime
 import joblib
+import pandas as pd
+import io
 
 from backend.database import get_db, Prediction, Experiment, Model
 from backend.config import settings
@@ -174,4 +176,176 @@ async def submit_feedback(request: FeedbackRequest, db: Session = Depends(get_db
         "status": "success",
         "message": "Feedback recorded",
         "prediction_id": request.prediction_id
+    }
+
+
+@router.post("/batch-predict")
+async def batch_predict(
+    experiment_id: str = Form(...),
+    file: UploadFile = File(...),
+    user_id_column: str = Form("user_id"),
+    target_column: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload a CSV file for batch predictions
+    
+    - **experiment_id**: ID of the running experiment
+    - **file**: CSV file with features (and optionally user_id and ground_truth columns)
+    - **user_id_column**: Name of the column containing user IDs (default: "user_id")
+    - **target_column**: Name of the ground truth column if available (optional)
+    
+    Returns predictions for all rows and automatically submits feedback if ground truth is provided
+    """
+    # Get experiment
+    experiment = db.query(Experiment).filter(Experiment.id == experiment_id).first()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    
+    if experiment.status != "running":
+        raise HTTPException(status_code=400, detail=f"Experiment is not running (status: {experiment.status})")
+    
+    # Read CSV file
+    try:
+        contents = await file.read()
+        df = pd.read_csv(io.BytesIO(contents))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {str(e)}")
+    
+    if df.empty:
+        raise HTTPException(status_code=400, detail="CSV file is empty")
+    
+    # Validate user_id column exists
+    if user_id_column not in df.columns:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Column '{user_id_column}' not found in CSV. Available columns: {list(df.columns)}"
+        )
+    
+    # Check if target column exists
+    has_ground_truth = target_column and target_column in df.columns
+    
+    # Get feature columns (exclude user_id and target)
+    excluded_cols = [user_id_column]
+    if has_ground_truth:
+        excluded_cols.append(target_column)
+    
+    feature_columns = [col for col in df.columns if col not in excluded_cols]
+    
+    if not feature_columns:
+        raise HTTPException(status_code=400, detail="No feature columns found in CSV")
+    
+    results = []
+    predictions_by_variant = {"champion": 0, "challenger": 0}
+    
+    for idx, row in df.iterrows():
+        user_id = str(row[user_id_column])
+        
+        # Assign user to variant
+        variant = assign_user_to_variant(user_id, experiment_id, experiment.traffic_split)
+        predictions_by_variant[variant] += 1
+        
+        # Get the appropriate model
+        if variant == "champion":
+            model_id = experiment.champion_model_id
+        else:
+            model_id = experiment.challenger_model_id
+        
+        model_record = db.query(Model).filter(Model.id == model_id).first()
+        if not model_record:
+            raise HTTPException(status_code=404, detail=f"Model {model_id} not found")
+        
+        # Load and run model
+        try:
+            model = load_model_artifact(model_record.file_path, model_record.model_type)
+            
+            # Extract features in order
+            features_dict = {col: row[col] for col in feature_columns}
+            feature_values = [row[col] for col in feature_columns]
+            
+            # Measure latency
+            start_time = time.time()
+            prediction = model.predict([feature_values])[0]
+            latency_ms = (time.time() - start_time) * 1000
+            
+            # Get probability if available
+            probability = None
+            if hasattr(model, 'predict_proba'):
+                proba = model.predict_proba([feature_values])[0]
+                probability = float(max(proba))
+            
+        except Exception as e:
+            results.append({
+                "row": int(idx),
+                "user_id": user_id,
+                "error": f"Prediction failed: {str(e)}",
+                "variant": variant
+            })
+            continue
+        
+        # Generate prediction ID
+        prediction_id = f"pred_{uuid.uuid4().hex[:12]}"
+        
+        # Get ground truth if available
+        ground_truth = None
+        if has_ground_truth:
+            ground_truth = int(row[target_column])
+        
+        # Log prediction to database
+        prediction_record = Prediction(
+            prediction_id=prediction_id,
+            experiment_id=experiment_id,
+            user_id=user_id,
+            model_id=model_id,
+            variant=variant,
+            features=features_dict,
+            prediction=int(prediction),
+            probability=probability,
+            ground_truth=ground_truth,
+            latency_ms=latency_ms,
+            timestamp=datetime.utcnow(),
+            ground_truth_timestamp=datetime.utcnow() if ground_truth is not None else None
+        )
+        
+        db.add(prediction_record)
+        
+        # Add to results
+        result_row = {
+            "row": int(idx),
+            "user_id": user_id,
+            "variant": variant,
+            "prediction": int(prediction),
+            "probability": round(probability, 4) if probability else None,
+            "prediction_id": prediction_id,
+            "latency_ms": round(latency_ms, 2)
+        }
+        
+        if has_ground_truth:
+            result_row["ground_truth"] = ground_truth
+            result_row["correct"] = int(prediction) == ground_truth
+        
+        results.append(result_row)
+    
+    # Commit all predictions at once
+    db.commit()
+    
+    # Calculate summary statistics
+    if has_ground_truth:
+        total_predictions = len([r for r in results if "error" not in r])
+        correct_predictions = len([r for r in results if r.get("correct", False)])
+        accuracy = correct_predictions / total_predictions if total_predictions > 0 else 0
+    else:
+        accuracy = None
+    
+    return {
+        "status": "success",
+        "experiment_id": experiment_id,
+        "total_rows": len(df),
+        "successful_predictions": len([r for r in results if "error" not in r]),
+        "failed_predictions": len([r for r in results if "error" in r]),
+        "predictions_by_variant": predictions_by_variant,
+        "ground_truth_provided": has_ground_truth,
+        "overall_accuracy": round(accuracy, 4) if accuracy is not None else None,
+        "results": results[:100],  # Return first 100 results
+        "message": f"Processed {len(df)} rows. Use /api/experiments/{experiment_id}/results for detailed analysis."
     }

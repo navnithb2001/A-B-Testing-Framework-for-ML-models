@@ -57,6 +57,7 @@ This framework enables **data scientists and ML engineers** to:
 - **Regression:** MSE, RMSE, MAE, R², MAPE
 - **Latency:** Mean, Median, p50, p95, p99
 - **Custom metrics** support
+- **Batch predictions** - Upload CSV files for bulk testing
 
 ### 📈 Statistical Analysis (⭐ Most Impressive)
 - **Welch's t-test** - Latency comparison with unequal variance handling
@@ -329,6 +330,18 @@ GET /api/models/{model_id}
 #### Delete Model
 ```bash
 DELETE /api/models/{model_id}
+
+Response: {"status": "success", "message": "Model model_abc123 deleted"}
+```
+
+**Note:** Models cannot be deleted if they are used in any experiments. Delete experiments first.
+
+**Error Example:**
+```json
+{
+  "detail": "Cannot delete model. It is used in 2 experiment(s). 
+             Please delete the experiments first or stop using this model."
+}
 ```
 
 ### Experiment Management
@@ -358,7 +371,25 @@ GET /api/experiments/list?status=running
 #### Stop Experiment
 ```bash
 POST /api/experiments/{experiment_id}/stop
+
+Response: {
+  "status": "success",
+  "message": "Experiment exp_xyz789 stopped"
+}
 ```
+
+#### Delete Experiment
+```bash
+DELETE /api/experiments/{experiment_id}
+
+Response: {
+  "status": "success",
+  "message": "Experiment exp_xyz789 deleted",
+  "predictions_deleted": 1250
+}
+```
+
+**Note:** Deleting an experiment will also delete all associated predictions. This action is permanent.
 
 #### Get Experiment Results (⭐ Statistical Analysis)
 ```bash
@@ -425,6 +456,39 @@ Response: {
   "latency_ms": 15.2
 }
 ```
+
+#### Batch Prediction (Upload CSV)
+```bash
+POST /api/batch-predict
+
+# Using curl with file upload
+curl -X POST http://127.0.0.1:8000/api/batch-predict \
+  -F "file=@test_data.csv" \
+  -F "experiment_id=exp_xyz789" \
+  -F "user_id_column=user_id" \
+  -F "target_column=is_fraud"
+
+Response: {
+  "status": "success",
+  "total_rows": 2000,
+  "successful_predictions": 2000,
+  "predictions_by_variant": {"champion": 1004, "challenger": 996},
+  "overall_accuracy": 0.944,
+  "results": [...first 100 predictions...],
+  "message": "Processed 2000 rows. Use /api/experiments/{id}/results for analysis."
+}
+```
+
+**CSV Format Requirements:**
+- Must include a column for user IDs (default: `user_id`)
+- Feature columns should match model training data
+- Optionally include ground truth column for automatic feedback
+- Example CSV structure:
+  ```csv
+  user_id,transaction_amount,merchant_category,...,is_fraud
+  user_0001,1250.50,2,...,0
+  user_0002,850.20,1,...,1
+  ```
 
 #### Submit Ground Truth Feedback
 ```bash
