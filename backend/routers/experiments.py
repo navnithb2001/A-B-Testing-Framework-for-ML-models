@@ -105,7 +105,23 @@ async def list_experiments(status: Optional[str] = None, db: Session = Depends(g
     if status:
         query = query.filter(Experiment.status == status)
     experiments = query.all()
-    return experiments
+    
+    # Convert datetime fields to strings
+    return [
+        {
+            "id": exp.id,
+            "name": exp.name,
+            "champion_model_id": exp.champion_model_id,
+            "challenger_model_id": exp.challenger_model_id,
+            "traffic_split": exp.traffic_split,
+            "primary_metric": exp.primary_metric,
+            "status": exp.status,
+            "start_date": exp.start_date.isoformat() if exp.start_date else None,
+            "end_date": exp.end_date.isoformat() if exp.end_date else None,
+            "created_at": exp.created_at.isoformat()
+        }
+        for exp in experiments
+    ]
 
 
 @router.get("/{experiment_id}", response_model=ExperimentResponse)
@@ -114,7 +130,19 @@ async def get_experiment(experiment_id: str, db: Session = Depends(get_db)):
     experiment = db.query(Experiment).filter(Experiment.id == experiment_id).first()
     if not experiment:
         raise HTTPException(status_code=404, detail="Experiment not found")
-    return experiment
+    
+    return {
+        "id": experiment.id,
+        "name": experiment.name,
+        "champion_model_id": experiment.champion_model_id,
+        "challenger_model_id": experiment.challenger_model_id,
+        "traffic_split": experiment.traffic_split,
+        "primary_metric": experiment.primary_metric,
+        "status": experiment.status,
+        "start_date": experiment.start_date.isoformat() if experiment.start_date else None,
+        "end_date": experiment.end_date.isoformat() if experiment.end_date else None,
+        "created_at": experiment.created_at.isoformat()
+    }
 
 
 @router.post("/{experiment_id}/stop")
@@ -135,6 +163,38 @@ async def stop_experiment(experiment_id: str, db: Session = Depends(get_db)):
         "status": "success",
         "message": f"Experiment {experiment_id} stopped"
     }
+
+
+@router.delete("/{experiment_id}")
+async def delete_experiment(experiment_id: str, db: Session = Depends(get_db)):
+    """
+    Delete an experiment and all its associated predictions
+    
+    Warning: This will permanently delete the experiment and all prediction data.
+    """
+    experiment = db.query(Experiment).filter(Experiment.id == experiment_id).first()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    
+    # Count predictions that will be deleted
+    prediction_count = db.query(Prediction).filter(Prediction.experiment_id == experiment_id).count()
+    
+    try:
+        # Delete all predictions associated with this experiment
+        db.query(Prediction).filter(Prediction.experiment_id == experiment_id).delete()
+        
+        # Delete the experiment
+        db.delete(experiment)
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"Experiment {experiment_id} deleted",
+            "predictions_deleted": prediction_count
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete experiment: {str(e)}")
 
 
 @router.get("/{experiment_id}/results")

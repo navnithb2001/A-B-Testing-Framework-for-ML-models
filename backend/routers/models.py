@@ -91,7 +91,19 @@ async def register_model(request: ModelRegisterRequest, db: Session = Depends(ge
 async def list_models(db: Session = Depends(get_db)):
     """List all registered models"""
     models = db.query(Model).all()
-    return models
+    # Convert datetime to string for response
+    return [
+        {
+            "id": model.id,
+            "name": model.name,
+            "version": model.version,
+            "file_path": model.file_path,
+            "model_type": model.model_type,
+            "alias": model.alias,
+            "registered_at": model.registered_at.isoformat() if model.registered_at else None
+        }
+        for model in models
+    ]
 
 
 @router.get("/{model_id}", response_model=ModelResponse)
@@ -100,20 +112,43 @@ async def get_model(model_id: str, db: Session = Depends(get_db)):
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
-    return model
+    
+    return {
+        "id": model.id,
+        "name": model.name,
+        "version": model.version,
+        "file_path": model.file_path,
+        "model_type": model.model_type,
+        "alias": model.alias,
+        "registered_at": model.registered_at.isoformat()
+    }
 
 
 @router.delete("/{model_id}")
 async def delete_model(model_id: str, db: Session = Depends(get_db)):
     """Delete a model from the registry"""
+    from backend.database import Experiment
+    
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
     
-    # Check if model is used in any active experiments
-    # (Add this check later when experiments table is ready)
+    # Check if model is used in any experiments
+    champion_experiments = db.query(Experiment).filter(Experiment.champion_model_id == model_id).count()
+    challenger_experiments = db.query(Experiment).filter(Experiment.challenger_model_id == model_id).count()
     
-    db.delete(model)
-    db.commit()
+    if champion_experiments > 0 or challenger_experiments > 0:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot delete model. It is used in {champion_experiments + challenger_experiments} experiment(s). "
+                   f"Please delete the experiments first or stop using this model."
+        )
+    
+    try:
+        db.delete(model)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete model: {str(e)}")
     
     return {"status": "success", "message": f"Model {model_id} deleted"}
